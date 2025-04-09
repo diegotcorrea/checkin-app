@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>CheckIn App</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Estilos básicos -->
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background-color: #f5f5f5;
+      }
+      #root {
+        max-width: 600px;
+        margin: 40px auto;
+        text-align: center;
+      }
+    </style>
+    <!-- Importa React, ReactDOM e Babel via CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Código do App, escrito em JSX (Babel fará a conversão em tempo de execução) -->
+    <script type="text/babel">
+      /***********************************************************
+       * Funções de suporte (Cálculo de distância e Storage)
+       ***********************************************************/
+      // Coordenadas autorizadas e raio em metros
+      const AUTHORIZED_LAT = -3.7216461;
+      const AUTHORIZED_LNG = -38.5191889;
+      const MAX_DISTANCE = 50; // 50 metros
+
+      // Função para converter graus para radianos
+      function deg2rad(deg) {
+        return deg * (Math.PI / 180);
+      }
+
+      // Calcula a distância entre duas coordenadas (fórmula de Haversine)
+      function getDistanceInMeters(lat1, lng1, lat2, lng2) {
+        const R = 6371000; // Raio da Terra em metros
+        const dLat = deg2rad(lat2 - lat1);
+        const dLng = deg2rad(lng2 - lng1);
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(deg2rad(lat1)) *
+            Math.cos(deg2rad(lat2)) *
+            Math.sin(dLng / 2) *
+            Math.sin(dLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+      }
+
+      // Funções para salvar e ler registros do localStorage
+      function getLogs() {
+        const logs = localStorage.getItem("checkin-logs");
+        return logs ? JSON.parse(logs) : [];
+      }
+
+      function saveLog(username, type, location) {
+  const logs = getLogs();
+  const timestamp = new Date().toISOString();
+  const newLog = {
+    username,
+    type,
+    location,
+    date: new Date().toLocaleString(), // para exibição
+    timestamp: timestamp              // para ordenação
+  };
+  logs.push(newLog);
+  localStorage.setItem("checkin-logs", JSON.stringify(logs));
+
+  // Envia os dados para o Web App (substitua "SUA_URL_AQUI" pela URL do deployment do Apps Script)
+  fetch("https://script.google.com/macros/s/AKfycbyQlHbjh4iuXvxzB8ZuBuB1de-zp25hijvCP8JDM9Cwh1eMrUUZQQ67kKgNOPonS7cX/exec", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(newLog)
+  })
+    .then(response => response.json())
+    .then(data => console.log("Registro enviado com sucesso:", data))
+    .catch(error => console.error("Erro ao enviar registro:", error));
+}
+
+      /***********************************************************
+       * Componente Principal do App
+       ***********************************************************/
+      function App() {
+        const [status, setStatus] = React.useState("");
+        const [logs, setLogs] = React.useState([]);
+
+        // Carrega os registros ao iniciar
+        React.useEffect(() => {
+          setLogs(getLogs());
+        }, []);
+
+        // Define o tipo de registro para o usuário (alternando entre entrada e saída)
+        function getNewRecordType(user) {
+          const userLogs = getLogs().filter((log) => log.username === user);
+          if (userLogs.length === 0) return "entrada";
+          const lastRecord = userLogs[userLogs.length - 1];
+          return lastRecord.type === "entrada" ? "saida" : "entrada";
+        }
+
+        // Função que trata o registro do ponto para um usuário
+        function handleCheck(user) {
+          setStatus("Obtendo localização...");
+          if (!navigator.geolocation) {
+            setStatus("GPS não disponível.");
+            return;
+          }
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const { latitude, longitude } = position.coords;
+              const distance = getDistanceInMeters(
+                latitude,
+                longitude,
+                AUTHORIZED_LAT,
+                AUTHORIZED_LNG
+              );
+              if (distance > MAX_DISTANCE) {
+                setStatus("Fora da zona autorizada");
+                return;
+              }
+              const newType = getNewRecordType(user);
+              const locationStr = `Lat: ${latitude.toFixed(6)}, Lng: ${longitude.toFixed(6)}`;
+              saveLog(user, newType, locationStr);
+              setStatus(`${user} - Check-${newType} registrado com sucesso!`);
+              setLogs(getLogs());
+            },
+            (error) => {
+              setStatus("Erro ao obter localização: " + error.message);
+            }
+          );
+        }
+
+        return (
+          <div>
+            <h2>Registro de Ponto</h2>
+            <p>
+              Endereço: Rua Dragão do Mar, Centro, Fortaleza, Ceará, 60060-390, Brasil<br />
+              Latitude: -3.721234, Longitude: -38.541678
+            </p>
+            <p>Você deve estar a, no máximo, 50 metros desse endereço para registrar o ponto.</p>
+            <div style={{ margin: "20px" }}>
+              <button onClick={() => handleCheck("guilherme")} style={{ marginRight: "10px" }}>
+                Registrar Ponto - Guilherme
+              </button>
+              <button onClick={() => handleCheck("leo")}>
+                Registrar Ponto - Leo
+              </button>
+            </div>
+            <p>{status}</p>
+            <h3>Histórico de Registros</h3>
+            {logs.length === 0 ? (
+              <p>Nenhum registro encontrado.</p>
+            ) : (
+              <ul style={{ textAlign: "left" }}>
+                {logs.map((log, index) => (
+                  <li key={index}>
+                    {log.username} | {log.type.toUpperCase()} em {log.date} | Localização: {log.location}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      }
+
+      // Renderiza o App dentro do elemento com id "root"
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>
